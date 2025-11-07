@@ -1,0 +1,336 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model - represents both donors and recipients
+model User {
+  id                    String    @id @default(cuid())
+  email                 String    @unique
+  passwordHash          String
+  firstName             String
+  lastName              String
+  dateOfBirth           DateTime
+  gender                String
+  bloodType             String
+  phoneNumber           String
+  address               String
+  city                  String
+  state                 String
+  zipCode               String
+  country               String
+  
+  // User type: DONOR, RECIPIENT, ADMIN, MEDICAL_PROFESSIONAL
+  userType              String    @default("DONOR")
+  
+  // Donor-specific fields
+  isDonor               Boolean   @default(false)
+  donorStatus           String?   // REGISTERED, ACTIVE, INACTIVE, DECEASED
+  organsDonating        String[]  // Array of organ types
+  donationDate          DateTime?
+  
+  // Recipient-specific fields
+  isRecipient           Boolean   @default(false)
+  recipientStatus       String?   // WAITING, MATCHED, TRANSPLANTED, INACTIVE
+  organNeeded           String?
+  waitlistDate          DateTime?
+  urgencyLevel          String?   // LOW, MEDIUM, HIGH, CRITICAL
+  
+  // Medical information
+  medicalHistory        String?
+  allergies             String?
+  medications           String?
+  bloodPressure         String?
+  
+  // Verification and security
+  emailVerified         Boolean   @default(false)
+  phoneVerified         Boolean   @default(false)
+  identityVerified      Boolean   @default(false)
+  medicalRecordsVerified Boolean @default(false)
+  
+  // Consent and legal
+  consentGiven          Boolean   @default(false)
+  consentDate           DateTime?
+  consentDocument       String?   // URL to consent document
+  
+  // Emergency contact
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  emergencyContactRelation String?
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  lastLogin             DateTime?
+  
+  // Relations
+  donations             Donation[]
+  matches               Match[]
+  medicalRecords        MedicalRecord[]
+  notifications         Notification[]
+  auditLogs             AuditLog[]
+  
+  @@index([email])
+  @@index([userType])
+  @@index([donorStatus])
+  @@index([recipientStatus])
+}
+
+// Donation model - tracks organ donations
+model Donation {
+  id                    String    @id @default(cuid())
+  donorId               String
+  donor                 User      @relation(fields: [donorId], references: [id], onDelete: Cascade)
+  
+  organType             String    // HEART, KIDNEY, LIVER, LUNG, PANCREAS, CORNEA, BONE_MARROW, etc.
+  organStatus           String    @default("AVAILABLE") // AVAILABLE, MATCHED, TRANSPLANTED, REJECTED, EXPIRED
+  
+  // Organ quality metrics
+  organQuality          String?   // EXCELLENT, GOOD, FAIR, POOR
+  viabilityScore        Int?      // 0-100
+  preservationTime      Int?      // in hours
+  
+  // Donation details
+  donationDate          DateTime  @default(now())
+  collectionHospital    String?
+  collectionTime        DateTime?
+  
+  // Matching information
+  match                 Match?
+  
+  // Transplant information
+  transplantDate        DateTime?
+  transplantHospital    String?
+  transplantStatus      String?   // PENDING, COMPLETED, FAILED, CANCELLED
+  
+  // Medical professional notes
+  medicalNotes          String?
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  expiresAt             DateTime?
+  
+  @@index([donorId])
+  @@index([organType])
+  @@index([organStatus])
+}
+
+// Match model - tracks donor-recipient matches
+model Match {
+  id                    String    @id @default(cuid())
+  donationId            String    @unique
+  donation              Donation  @relation(fields: [donationId], references: [id], onDelete: Cascade)
+  
+  recipientId           String
+  recipient             User      @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  
+  // Match quality
+  compatibilityScore    Int       // 0-100 based on blood type, tissue type, etc.
+  bloodTypeMatch        Boolean
+  tissueTypeMatch       Boolean
+  crossmatchResult      String?   // NEGATIVE, POSITIVE, PENDING
+  
+  // Match status
+  matchStatus           String    @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED, COMPLETED
+  matchDate             DateTime  @default(now())
+  approvalDate          DateTime?
+  rejectionReason       String?
+  
+  // Transplant outcome
+  transplantOutcome     String?   // SUCCESS, FAILURE, PARTIAL_SUCCESS
+  outcomeNotes          String?
+  
+  // Follow-up
+  followUpDate          DateTime?
+  followUpStatus        String?   // PENDING, COMPLETED, SCHEDULED
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([recipientId])
+  @@index([matchStatus])
+}
+
+// Medical Record model - stores detailed medical information
+model MedicalRecord {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  recordType            String    // BLOOD_TEST, IMAGING, PATHOLOGY, GENETIC, INFECTIOUS_DISEASE, etc.
+  recordDate            DateTime
+  
+  // Test results
+  testName              String
+  testResult            String
+  normalRange           String?
+  abnormalFlag          Boolean   @default(false)
+  
+  // File storage
+  documentUrl           String?   // URL to medical document/image
+  documentType          String?   // PDF, IMAGE, etc.
+  
+  // Medical professional
+  recordedBy            String?   // Medical professional name
+  recordedByLicense     String?   // License number
+  
+  // Notes
+  clinicalNotes         String?
+  recommendations       String?
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([userId])
+  @@index([recordType])
+}
+
+// Notification model - tracks system notifications
+model Notification {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  notificationType      String    // MATCH_FOUND, DONATION_RECEIVED, STATUS_UPDATE, APPOINTMENT, ALERT, etc.
+  title                 String
+  message               String
+  
+  // Notification status
+  isRead                Boolean   @default(false)
+  readAt                DateTime?
+  
+  // Related entity
+  relatedEntityType     String?   // DONATION, MATCH, MEDICAL_RECORD, etc.
+  relatedEntityId       String?
+  
+  // Priority
+  priority              String    @default("NORMAL") // LOW, NORMAL, HIGH, CRITICAL
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  expiresAt             DateTime?
+  
+  @@index([userId])
+  @@index([isRead])
+}
+
+// Audit Log model - tracks all system activities for security and compliance
+model AuditLog {
+  id                    String    @id @default(cuid())
+  userId                String?
+  user                  User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action                String    // LOGIN, CREATE, UPDATE, DELETE, VIEW, EXPORT, etc.
+  entityType            String    // USER, DONATION, MATCH, MEDICAL_RECORD, etc.
+  entityId              String?
+  
+  // Change tracking
+  oldValues             String?   // JSON string of old values
+  newValues             String?   // JSON string of new values
+  
+  // Request details
+  ipAddress             String?
+  userAgent             String?
+  
+  // Status
+  status                String    @default("SUCCESS") // SUCCESS, FAILURE
+  errorMessage          String?
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+// Hospital/Medical Center model
+model MedicalCenter {
+  id                    String    @id @default(cuid())
+  name                  String
+  address               String
+  city                  String
+  state                 String
+  zipCode               String
+  country               String
+  phoneNumber           String
+  email                 String
+  
+  // Hospital details
+  licenseNumber         String    @unique
+  accreditation         String?
+  specialties           String[]  // TRANSPLANT, CARDIOLOGY, NEPHROLOGY, etc.
+  
+  // Capacity
+  totalBeds             Int?
+  transplantBeds        Int?
+  
+  // Contact person
+  contactPersonName     String?
+  contactPersonTitle    String?
+  contactPersonPhone    String?
+  
+  // Status
+  isActive              Boolean   @default(true)
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([city])
+  @@index([isActive])
+}
+
+// Blood Bank model - tracks blood inventory
+model BloodBank {
+  id                    String    @id @default(cuid())
+  bloodType             String    // A+, A-, B+, B-, AB+, AB-, O+, O-
+  quantity              Int       @default(0)
+  unit                  String    @default("units")
+  
+  // Expiration
+  expirationDate        DateTime
+  
+  // Location
+  storageLocation       String?
+  temperature           Float?    // in Celsius
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  
+  @@index([bloodType])
+}
+
+// Appointment model - tracks medical appointments
+model Appointment {
+  id                    String    @id @default(cuid())
+  title                 String
+  description           String?
+  
+  appointmentDate       DateTime
+  appointmentTime       String
+  duration              Int?      // in minutes
+  
+  // Location
+  location              String
+  medicalCenter         String?
+  
+  // Status
+  status                String    @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED, RESCHEDULED
+  
+  // Timestamps
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
